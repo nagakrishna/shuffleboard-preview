@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Shuffleboard</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0e151e;color:#fff4d9;font:16px system-ui,sans-serif;overflow:hidden;overscroll-behavior:none}
+main{position:relative;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:100dvh;padding:8px max(12px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));text-align:center;background:radial-gradient(ellipse at 50% 42%,#363044,#11121d 76%)}
+h1{margin:0;font-size:clamp(16px,4vw,22px);letter-spacing:.045em;text-transform:uppercase;color:#ffe8b6;text-shadow:0 2px #15121c}
+small{color:#f2b569;font-size:.63rem;font-weight:800;letter-spacing:.2em}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;width:min(100%,460px);margin:4px auto;font-weight:800;font-size:.85rem}
+.match-console{width:min(100%,480px);justify-self:center;padding:4px 10px 6px;border:1px solid #8275a070;border-radius:11px;background:linear-gradient(#30293d,#181923);box-shadow:0 5px 16px #07091280}
+.score-note{font-size:.55rem;letter-spacing:0}
+canvas{display:block;width:100%;height:100%;min-height:0;touch-action:none;outline-offset:-3px}
+footer{display:grid;justify-items:center;align-content:center;gap:7px;min-height:76px;padding:5px 0}
+.controls{display:flex;gap:10px}
+.controls button{display:grid;place-items:center;width:44px;height:44px;padding:0;border-radius:12px}
+.controls svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.controls .alternate,.controls .is-alternate .primary{display:none}
+.controls .is-alternate .alternate{display:block}
+.controls button:focus-visible{outline:2px solid #f2c587;outline-offset:3px}
+#status.result{color:#ffe8ae;font-weight:800;font-size:1rem}
+p{margin:0;max-width:26em;min-width:0;font-size:clamp(.72rem,2.5vw,.87rem);color:#f6dfba}
+button{font:inherit;font-size:.75rem;font-weight:750;color:#fff4d9;background:#283349;border:1px solid #596784;border-radius:999px;padding:8px 12px;min-height:40px}
+@media (max-height:440px) and (orientation:landscape){main{grid-template-columns:minmax(112px,23%) minmax(0,1fr) minmax(112px,23%);grid-template-rows:minmax(0,1fr);align-items:center}header,footer{flex-wrap:wrap}canvas{align-self:stretch}}
+.player{display:grid;gap:5px;color:#9fcaff}.player.red{color:#ed4540}
+.puck-tray{letter-spacing:3px;font-size:.82rem;text-shadow:0 0 8px currentColor}
+.puck-tray::after{content:attr(data-used);color:#5b5664;text-shadow:none}
+.result-panel{
+  --medal:#f3cc7d;
+  position:absolute;z-index:3;top:50%;left:50%;
+  width:min(350px,calc(100% - 32px));padding:19px 20px 20px;
+  transform:translate(-50%,-50%);border:1px solid var(--medal);border-radius:20px;
+  background:radial-gradient(ellipse at 50% 0%,#544126,#1b2024 63%,#121719);
+  box-shadow:0 18px 68px #000c,inset 0 1px #fff3;
+  animation:result-in .48s cubic-bezier(.2,.8,.25,1.12) both
+}
+.result-panel.opponent{--medal:#ff9585;background:radial-gradient(ellipse at top,#512b2a,#1b2024 65%)}
+main:has(#result:not([hidden]))::after{content:"";position:absolute;inset:0;z-index:2;background:#080b12a6;pointer-events:none}
+.result-medal{display:grid;place-items:center;width:52px;height:52px;margin:0 auto 8px;border-radius:50%;border:1px solid var(--medal);color:var(--medal);background:#15171a;box-shadow:0 0 24px color-mix(in srgb,var(--medal) 34%,transparent)}
+.result-medal svg{width:27px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.result-panel h2{margin:3px 0 13px;font:700 2rem Georgia,serif;color:var(--medal)}
+.final-scores{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;margin-bottom:14px;color:#b8ad97}
+.final-score{display:grid;gap:2px;padding:7px;border-radius:9px;background:#121924;border:1px solid #637f9b80;color:#a9d2ff}
+.final-score.bot{color:#ff9f94;background:#25191c;border-color:#ab514680}
+.final-score strong{font-size:1.7rem;line-height:1;font-variant-numeric:tabular-nums}
+.final-score span{font-size:.6rem;letter-spacing:.14em;font-weight:800}
+.result-panel button{width:100%;border:0;border-radius:9px;background:linear-gradient(#ffe2a6,#d7aa59);color:#271d16;font-size:.85rem}
+.result-panel button:focus-visible{outline:2px solid white;outline-offset:3px}
+@keyframes result-in{from{opacity:0;transform:translate(-50%,-42%) scale(.82)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@media(prefers-reduced-motion:reduce){.result-panel{animation:none}}
+.match-console{background:linear-gradient(145deg,#242c25,#111b19);border-color:#ad865b7d}
+.match-console h1{font-family:Georgia,serif;letter-spacing:.16em;color:#f3dcaf}
+header{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-top:7px}
+.player{justify-items:center;gap:2px;padding:5px 4px 4px;border:1px solid #76adfa55;border-top:2px solid #9fcaff;border-radius:9px;background:linear-gradient(#243954,#151f2d)}
+.player.red{border-color:#e68c9e55;border-top-color:#ed4540;background:linear-gradient(#462b38,#261b26)}
+.player-name{color:inherit;font-size:.57rem;letter-spacing:.18em}
+.player-score{color:#fff5e2;font-size:1.65rem;line-height:1;font-variant-numeric:tabular-nums}
+.puck-tray{grid-column:1/-1;min-height:1em}.match-mode{display:grid;gap:2px;color:#e7cb98}.match-mode small{font-size:.47rem;letter-spacing:.08em}
+.tie-banner{position:absolute;z-index:2;left:50%;top:45%;width:min(300px,calc(100% - 40px));transform:translate(-50%,-50%);padding:16px;border:1px solid #d8b57a;border-radius:12px;background:#171f1af5;box-shadow:0 12px 45px #0009;pointer-events:none;animation:result-in .32s ease-out both}
+.tie-banner strong{display:block;color:#ffe2aa;font-family:Georgia,serif;font-size:1.4rem}.tie-banner p{margin:5px auto 0}
+@media(max-height:440px) and (orientation:landscape){header{grid-template-columns:1fr}.match-mode{display:none}}
+@media(prefers-reduced-motion:reduce){.tie-banner{animation:none}}
+</style>
+<main>
+<div class="match-console">
+<h1>Shuffleboard</h1>
+<header>
+<div class="player blue"><span class="player-name" id="you-name">YOU</span><strong class="player-score" id="you" aria-labelledby="you-name">0</strong><div class="puck-tray" id="you-pucks">●●●●</div></div>
+<div class="match-mode"><strong>VS</strong><small id="match-state">SINGLES</small></div>
+<div class="player red"><span class="player-name" id="bot-name">BOT</span><strong class="player-score" id="bot" aria-labelledby="bot-name">0</strong><div class="puck-tray" id="bot-pucks">●●●●</div></div>
+</header>
+</div>
+<canvas width="600" height="1140" id="table" tabindex="0" aria-label="Shuffleboard table. Drag back from the puck and release. With a keyboard, use arrow keys to adjust aim and power, then space to shoot."></canvas>
+<footer>
+<p id="status" aria-live="polite"></p>
+<div class="controls">
+<button id="reset" aria-label="Restart match" title="Restart match"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2 6M4 5v6h6"/></svg></button>
+<button id="pause" aria-label="Pause" title="Pause">
+<svg class="primary" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>
+<svg class="alternate" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7z"/></svg>
+</button>
+<button id="sound" aria-label="Sound" aria-pressed="true" title="Sound">
+<svg class="primary" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3zM16 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg>
+<svg class="alternate" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3zM16 9l6 6m0-6-6 6"/></svg>
+</button>
+</div>
+</footer>
+<aside id="tie-banner" class="tie-banner" hidden><strong>Tie game</strong><p>One extra puck for each player</p></aside>
+<section id="result" class="result-panel" aria-labelledby="result-title" hidden>
+<div class="result-medal" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0zm0 2H4v2a3 3 0 0 0 4 3m9-5h3v2a3 3 0 0 1-4 3m-4 3v5m-4 1h8"/></svg></div>
+<small>FINAL RESULT</small>
+<h2 id="result-title"></h2>
+<div class="final-scores" aria-label="Final score">
+<div class="final-score"><span>YOU</span><strong id="result-you"></strong></div>
+<span aria-hidden="true">–</span>
+<div class="final-score bot"><span>BOT</span><strong id="result-bot"></strong></div>
+</div>
+<button id="rematch">Play again</button>
+</section>
+</main>
+<script src="platform.js" defer></script>
+<script src="audio.js" defer></script>
+<script src="game.js?v=26" defer></script>
+</html>
