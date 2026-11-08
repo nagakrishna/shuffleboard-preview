@@ -35,6 +35,7 @@ const inch = (surface.bottom - surface.top) / 248;
 const threeLine = surface.top + 6 * inch;
 const twoLine = surface.top + 12 * inch;
 const foulLine = surface.top + 72 * inch;
+const releaseLine = surface.bottom - foulLine + surface.top;
 const scoringRadius = 2.3125 / 2 * inch;
 const puckTrays = [document.querySelector('#you-pucks'), document.querySelector('#bot-pucks')];
 const result = document.querySelector('#result');
@@ -44,6 +45,7 @@ const resultBot = document.querySelector('#result-bot');
 const rematchButton = document.querySelector('#rematch');
 const step = 1 / 120;
 const openingShots = 8;
+let currentShot;
 let pucks, turn, phase, shots, shotLimit, delay, drag, angle, speed, message;
 
 function reset() {
@@ -54,6 +56,7 @@ function reset() {
   impacts = [];
   trails = [];
   shots = 0;
+  currentShot = null;
   shotLimit = openingShots;
   turn = 0;
   result.hidden = true;
@@ -91,7 +94,7 @@ function updateStatus() {
   status.className = phase === 'done' ? 'result' : '';
   const overtime = shotLimit > openingShots ? 'Tiebreak · ' : '';
   const text = {
-    aim: overtime + (shots ? 'Your shot' : 'Pull back on the blue puck, then release'),
+    aim: overtime + (shots ? 'Your shot' : 'Press the blue puck and flick it forward'),
     bot: overtime + 'Opponent’s shot',
     moving: turn ? 'Opponent’s puck in play' : 'Your puck in play',
     tie: message,
@@ -100,11 +103,12 @@ function updateStatus() {
   status.textContent = text[phase];
 }
 
-function shoot(direction, power) {
-  pucks.push({
-    ...start, team: turn, vx: Math.sin(direction) * power,
-    vy: -Math.cos(direction) * power, out: false, launchAge: 0
-  });
+function shoot(direction, power, origin = start) {
+  currentShot = {
+    ...origin, launchY: origin.y, team: turn, vx: Math.sin(direction) * power,
+    vy: -Math.cos(direction) * power, out: false, launchAge: 0, crossedLine: false
+  };
+  pucks.push(currentShot);
   sound.effect('shot');
   phase = 'moving';
   shots++;
@@ -168,6 +172,8 @@ function tick() {
     for (let j = i + 1; j < active.length; j++) collide(active[i], active[j]);
   }
   for (const puck of active) {
+    if (puck === currentShot && puck.y + scoringRadius < releaseLine &&
+        puck.x >= surface.left && puck.x <= surface.right) puck.crossedLine = true;
     puck.out = puck.x < surface.left || puck.x > surface.right ||
       puck.y < surface.top || puck.y > surface.bottom;
     if (puck.out) {
@@ -185,6 +191,15 @@ function tick() {
     }
   }
   if (active.some(puck => !puck.out && (puck.vx || puck.vy))) return;
+  if (currentShot && !currentShot.crossedLine) {
+    pucks.pop();
+    currentShot = null;
+    shots--;
+    prepareShot();
+    if (turn === 0) status.textContent = 'Push past the line to complete your shot. Try again.';
+    return;
+  }
+  currentShot = null;
   if (shots === shotLimit) finishRound();
   else {
     turn = 1 - turn;
@@ -509,7 +524,7 @@ function draw() {
   strip(252.6, 34, 254, 526, '#f4d3a185');
   strip(46, 524.5, 254, 526, '#ffe1a287');
   ctx.textAlign = 'center';
-  for (const [y, label] of [[surface.bottom - foulLine + surface.top, ''], [threeLine, '3'], [twoLine, '2'], [foulLine, '1']]) {
+  for (const [y, label] of [[releaseLine, ''], [threeLine, '3'], [twoLine, '2'], [foulLine, '1']]) {
     const leftEdge = project(surface.left, y);
     const rightEdge = project(surface.right, y);
     ctx.fillStyle = '#6a3d2b';
@@ -575,7 +590,7 @@ function draw() {
       puckArt(puck.x, puck.y, puck.team);
     }
   }
-  if (phase === 'aim' || phase === 'bot') puckArt(start.x, start.y, turn);
+  if (phase === 'aim' || phase === 'bot') puckArt(drag?.puck.x ?? start.x, drag?.puck.y ?? start.y, turn);
   for (const impact of impacts) {
     const progress = impact.age / .36;
     ctx.globalAlpha = (1 - progress) * .8;
@@ -591,21 +606,6 @@ function draw() {
     ellipse(spark.x, spark.y, 1.9, 1.9, spark.color);
   }
   ctx.globalAlpha = 1;
-  if (drag || (phase === 'aim' && document.activeElement === canvas)) {
-    const distance = 42 + speed / 4;
-    const from = project(start.x, start.y - radius);
-    const to = project(start.x + Math.sin(angle) * distance, start.y - Math.cos(angle) * distance);
-    ctx.strokeStyle = '#204f48';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([4, 6]);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    strip(100, 507, 200, 513, '#3b3035');
-    strip(100, 507, 100 + speed / 390 * 100, 513, colors[0]);
-  }
 }
 
 function position(event) {
@@ -613,27 +613,55 @@ function position(event) {
   const origin = project(start.x, start.y);
   const puckY = view.top + (origin.y * cameraZoom + cameraY) * view.scale;
   const puckX = view.left + 150 * view.scale;
-  // Measure the pull in screen space so zoom does not change shot power.
+  // Measure the push in screen space so zoom does not change shot power.
   return { x: start.x + (event.clientX - rect.left - puckX) / view.scale,
     y: start.y + (event.clientY - rect.top - puckY) / view.scale };
 }
 
 function aim(event) {
   const point = position(event);
-  const dx = drag.origin.x - point.x;
-  const dy = point.y - drag.origin.y;
-  angle = Math.max(-0.55, Math.min(0.55, Math.atan2(dx, Math.max(1, dy))));
-  speed = Math.min(390, Math.max(0, dy) * 5.2);
+  const dx = point.x - drag.origin.x;
+  const dy = drag.origin.y - point.y;
+  const startScreen = project(start.x, start.y);
+  const targetY = startScreen.y - dy / cameraZoom;
+  let near = surface.bottom - scoringRadius;
+  let far = releaseLine + scoringRadius;
+  // Invert the perspective so the puck follows the pointer up to the painted line.
+  for (let i = 0; i < 16; i++) {
+    const middle = (near + far) / 2;
+    if (project(start.x, middle).y < targetY) far = middle;
+    else near = middle;
+  }
+  const y = (near + far) / 2;
+  const widthScale = project(start.x + 1, y).x - project(start.x, y).x;
+  const x = start.x + dx / (cameraZoom * widthScale);
+  drag.puck = {
+    x: Math.max(surface.left + radius, Math.min(surface.right - radius, x)),
+    y
+  };
+  // Sideways positioning before the forward push sets the launch position, not its direction.
+  if (dy < 7) {
+    drag.pushStart = drag.puck;
+    speed = 0;
+    return;
+  }
+  const pushStart = drag.pushStart ?? start;
+  const travelX = drag.puck.x - pushStart.x;
+  const travelY = pushStart.y - drag.puck.y;
+  angle = Math.max(-.55, Math.min(.55, Math.atan2(travelX, travelY)));
+  const power = Math.min(1, (dy - 7) / 120);
+  speed = 220 + 170 * power;
 }
 
 canvas.addEventListener('pointerdown', event => {
   if (!ready || paused || resuming || phase !== 'aim' || drag || event.button !== 0) return;
   const origin = position(event);
-  if (Math.hypot(origin.x - start.x, origin.y - start.y) > 35) return;
+  if (Math.hypot(origin.x - start.x, origin.y - start.y) > 48) return;
   event.preventDefault();
   beginPlay();
-  drag = { id: event.pointerId, origin };
+  drag = { id: event.pointerId, origin, puck: start };
   speed = 0;
+  angle = 0;
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener('pointermove', event => {
@@ -641,9 +669,13 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('pointerup', event => {
   if (drag?.id !== event.pointerId) return;
-  aim(event);
+  // A lift can report a shifted touch centroid. Use the last tracked puck
+  // position once a push is armed, so the puck never jumps at release.
+  if (speed < 25) aim(event);
+  const origin = drag.puck;
   drag = null;
-  if (speed >= 25) shoot(angle, speed);
+  if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  if (speed >= 25) shoot(angle, speed, origin);
 });
 for (const type of ['pointercancel', 'lostpointercapture']) {
   canvas.addEventListener(type, event => {
@@ -731,7 +763,7 @@ function updateCamera(delta) {
   let zoom = 1;
   let offset = 0;
   if ((phase === 'moving' || puck?.fall?.age < 1) && puck) {
-    const progress = Math.max(0, Math.min(1, (start.y - puck.y) / 400));
+    const progress = Math.max(0, Math.min(1, ((puck.launchY ?? start.y) - puck.y) / 400));
     zoom += .35 * progress;
     offset = 24 * progress;
   } else if (phase === 'done' || phase === 'tie') {
